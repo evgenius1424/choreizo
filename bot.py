@@ -178,10 +178,10 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         rows = cursor.fetchall()
 
     if not rows:
-        await update.message.reply_text("📭 No tasks found.")
+        await update.message.reply_text("You have no tasks at the moment.")
         return
 
-    lines = ["📝 Your tasks:\n"]
+    lines = ["*Your Tasks:*"]
     now = datetime.now()
 
     for task_id, task, due_date, rmin, rmax in rows:
@@ -189,26 +189,26 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         days_left = (due - now).days
 
         if days_left < 0:
-            status = f"⚠️ Overdue by {abs(days_left)} day{'s' if abs(days_left) != 1 else ''}"
+            status = f"Overdue by {abs(days_left)} day{'s' if abs(days_left) != 1 else ''}"
         elif days_left == 0:
-            status = "📅 Due today"
+            status = "Due *today*"
         elif days_left == 1:
-            status = "📅 Due tomorrow"
+            status = "Due *tomorrow*"
         else:
-            status = f"📅 Due in {days_left} days"
+            status = f"Due in *{days_left}* day{'s' if days_left != 1 else ''}"
 
-        task_type = "🔁" if rmin is not None else "📋"
+        task_type = "Recurring" if rmin is not None else "One-time"
         range_info = f" ({rmin}-{rmax} days)" if rmin is not None else ""
 
-        lines.append(f"{task_type} {task}\n   {status}{range_info}")
+        lines.append(f"\n*{task}*\n{task_type}{range_info}\n{status}")
 
     message = "\n".join(lines)
     if len(message) > 4000:
         messages = [message[i:i + 4000] for i in range(0, len(message), 4000)]
         for msg in messages:
-            await update.message.reply_text(msg)
+            await update.message.reply_text(msg, parse_mode="Markdown")
     else:
-        await update.message.reply_text(message)
+        await update.message.reply_text(message, parse_mode="Markdown")
 
 
 async def delete_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
