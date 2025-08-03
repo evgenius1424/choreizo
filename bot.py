@@ -1,6 +1,7 @@
 import logging
 import os
 import random
+import re
 import sqlite3
 from datetime import datetime, timedelta
 import asyncio
@@ -37,17 +38,40 @@ conn.commit()
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 Hello! I'm Choreizo. You can:\n"
-        "- Add a one-time task: /add_task <task_name> <min_days> <max_days>\n"
-        "- Add a recurring task: /add_recurring_task <task_name> <min_days> <max_days>\n"
+        "- Add a one-time task: /add_task <task name> <min_days>-<max_days>\n"
+        "- Add a recurring task: /add_recurring_task <task name> <min_days>-<max_days>\n"
         "- List tasks: /list_tasks"
     )
 
 
+async def _parse_task_input(args):
+    """
+    Helper function to parse task input in the format:
+    "<task name> <min_days>-<max_days>"
+    """
+    full_text = " ".join(args)
+    # Regex to find the last occurrence of "min_days-max_days"
+    # and capture the task name before it.
+    match = re.search(r'(\d+)-(\d+)$', full_text.strip())
+    if match:
+        min_days = int(match.group(1))
+        max_days = int(match.group(2))
+        # The task name is everything before the matched date range
+        task_name = full_text[:match.start()].strip()
+        if not task_name: # Handle cases where task name might be empty
+            return None, None, None
+        return task_name, min_days, max_days
+    return None, None, None
+
+
 async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    task_name, min_days, max_days = await _parse_task_input(context.args)
+
+    if task_name is None or min_days is None or max_days is None:
+        await update.message.reply_text("❌ Usage: /add_task <task name> <min_days>-<max_days>\nExample: /add_task Clean up the room 5-10")
+        return
+
     try:
-        task_name = context.args[0]
-        min_days = int(context.args[1])
-        max_days = int(context.args[2])
         days_until_due = random.randint(min_days, max_days)
         due_date = (datetime.now() + timedelta(days=days_until_due)).isoformat()
 
@@ -60,15 +84,19 @@ async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"✅ Task '{task_name}' added! I'll remind you in ~{days_until_due} days."
         )
-    except Exception:
-        await update.message.reply_text("❌ Usage: /add_task <task_name> <min_days> <max_days>")
+    except Exception as e:
+        logging.error(f"Error adding task: {e}")
+        await update.message.reply_text("An error occurred while adding the task. Please try again.")
 
 
 async def add_recurring_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    task_name, min_days, max_days = await _parse_task_input(context.args)
+
+    if task_name is None or min_days is None or max_days is None:
+        await update.message.reply_text("❌ Usage: /add_recurring_task <task name> <min_days>-<max_days>\nExample: /add_recurring_task Buy groceries 7-14")
+        return
+
     try:
-        task_name = context.args[0]
-        min_days = int(context.args[1])
-        max_days = int(context.args[2])
         days_until_due = random.randint(min_days, max_days)
         due_date = (datetime.now() + timedelta(days=days_until_due)).isoformat()
 
@@ -81,8 +109,9 @@ async def add_recurring_task(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(
             f"🔁 Recurring task '{task_name}' added! First reminder in ~{days_until_due} days."
         )
-    except Exception:
-        await update.message.reply_text("❌ Usage: /add_recurring_task <task_name> <min_days> <max_days>")
+    except Exception as e:
+        logging.error(f"Error adding recurring task: {e}")
+        await update.message.reply_text("An error occurred while adding the recurring task. Please try again.")
 
 
 async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -105,8 +134,10 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def reminder_loop(app: Application):
     while True:
         now = datetime.now()
-        start_hour = 11
-        end_hour = 20
+        # Define your "allowed" notification hours (e.g., 7 AM to 9 PM)
+        # You can adjust these values as needed
+        start_hour = 7
+        end_hour = 21 # 9 PM
 
         if not (start_hour <= now.hour < end_hour):
             logging.info(f"Skipping notifications during off-hours ({now.hour}:00)")
@@ -151,6 +182,7 @@ async def handle_snooze(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     task_id = int(query.data.split(":")[1])
+    # For snooze, we'll use a default snooze range, e.g., 7-14 days
     new_days = random.randint(7, 14)
     new_due = datetime.now() + timedelta(days=new_days)
     cursor.execute("UPDATE tasks SET due_date = ? WHERE id = ?", (new_due.isoformat(), task_id))
