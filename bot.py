@@ -105,6 +105,14 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def reminder_loop(app: Application):
     while True:
         now = datetime.now()
+        start_hour = 11
+        end_hour = 20
+
+        if not (start_hour <= now.hour < end_hour):
+            logging.info(f"Skipping notifications during off-hours ({now.hour}:00)")
+            await asyncio.sleep(60 * 60)  # Still wait an hour before checking again
+            continue
+
         cursor.execute("SELECT id, user_id, task, due_date, recurrence_min, recurrence_max FROM tasks")
         for row in cursor.fetchall():
             task_id, user_id, task, due_date, rmin, rmax = row
