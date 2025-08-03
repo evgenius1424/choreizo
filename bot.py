@@ -37,10 +37,13 @@ conn.commit()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 Hello! I'm Choreizo. You can:\n"
-        "- Add a one-time task: /add_task <task name> <min_days>-<max_days>\n"
-        "- Add a recurring task: /add_recurring_task <task name> <min_days>-<max_days>\n"
-        "- List tasks: /list_tasks"
+        "👋 Hello! I'm Choreizo, your friendly task reminder bot.\n\n"
+        "Here's what I can do:\n"
+        "- /task <task name> <min_days>-<max_days>: Add a one-time task that will remind you within the specified day range.\n"
+        "  Example: `/task Clean up the room 5-10`\n\n"
+        "- /every <task name> <min_days>-<max_days>: Add a recurring task that will remind you repeatedly within the specified day range after each completion.\n"
+        "  Example: `/every Buy groceries 7-14`\n\n"
+        "- /list: See all your currently active tasks and their next due dates."
     )
 
 
@@ -58,17 +61,19 @@ async def _parse_task_input(args):
         max_days = int(match.group(2))
         # The task name is everything before the matched date range
         task_name = full_text[:match.start()].strip()
-        if not task_name: # Handle cases where task name might be empty
+        if not task_name:  # Handle cases where task name might be empty
             return None, None, None
         return task_name, min_days, max_days
     return None, None, None
 
 
-async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# Renamed from add_task
+async def add_one_time_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     task_name, min_days, max_days = await _parse_task_input(context.args)
 
     if task_name is None or min_days is None or max_days is None:
-        await update.message.reply_text("❌ Usage: /add_task <task name> <min_days>-<max_days>\nExample: /add_task Clean up the room 5-10")
+        await update.message.reply_text(
+            "❌ Usage: `/task <task name> <min_days>-<max_days>`\nExample: `/task Clean up the room 5-10`")
         return
 
     try:
@@ -93,7 +98,8 @@ async def add_recurring_task(update: Update, context: ContextTypes.DEFAULT_TYPE)
     task_name, min_days, max_days = await _parse_task_input(context.args)
 
     if task_name is None or min_days is None or max_days is None:
-        await update.message.reply_text("❌ Usage: /add_recurring_task <task name> <min_days>-<max_days>\nExample: /add_recurring_task Buy groceries 7-14")
+        await update.message.reply_text(
+            "❌ Usage: /every <task name> <min_days>-<max_days>\nExample: /every Buy groceries 7-14")
         return
 
     try:
@@ -137,7 +143,7 @@ async def reminder_loop(app: Application):
         # Define your "allowed" notification hours (e.g., 7 AM to 9 PM)
         # You can adjust these values as needed
         start_hour = 7
-        end_hour = 21 # 9 PM
+        end_hour = 21  # 9 PM
 
         if not (start_hour <= now.hour < end_hour):
             logging.info(f"Skipping notifications during off-hours ({now.hour}:00)")
@@ -196,9 +202,10 @@ def main():
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("add_task", add_task))
-    app.add_handler(CommandHandler("add_recurring_task", add_recurring_task))
-    app.add_handler(CommandHandler("list_tasks", list_tasks))
+    # Change these to match your /start message
+    app.add_handler(CommandHandler("task", add_one_time_task))
+    app.add_handler(CommandHandler("every", add_recurring_task))
+    app.add_handler(CommandHandler("list", list_tasks))
     app.add_handler(CallbackQueryHandler(handle_snooze, pattern="^snooze:"))
 
     # Launch reminder loop
