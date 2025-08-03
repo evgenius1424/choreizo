@@ -17,7 +17,6 @@ load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
 logging.basicConfig(level=logging.INFO)
 
-# --- Database Setup ---
 conn = sqlite3.connect("choreizo.db", check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute("""
@@ -32,8 +31,6 @@ CREATE TABLE IF NOT EXISTS tasks (
 """)
 conn.commit()
 
-
-# --- Command Handlers ---
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -53,21 +50,17 @@ async def _parse_task_input(args):
     "<task name> <min_days>-<max_days>"
     """
     full_text = " ".join(args)
-    # Regex to find the last occurrence of "min_days-max_days"
-    # and capture the task name before it.
     match = re.search(r'(\d+)-(\d+)$', full_text.strip())
     if match:
         min_days = int(match.group(1))
         max_days = int(match.group(2))
-        # The task name is everything before the matched date range
         task_name = full_text[:match.start()].strip()
-        if not task_name:  # Handle cases where task name might be empty
+        if not task_name:
             return None, None, None
         return task_name, min_days, max_days
     return None, None, None
 
 
-# Renamed from add_task
 async def add_one_time_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     task_name, min_days, max_days = await _parse_task_input(context.args)
 
@@ -99,7 +92,7 @@ async def add_recurring_task(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     if task_name is None or min_days is None or max_days is None:
         await update.message.reply_text(
-            "❌ Usage: /every <task name> <min_days>-<max_days>\nExample: /every Buy groceries 7-14")
+            "❌ Usage: `/every <task name> <min_days>-<max_days>`\nExample: `/every Buy groceries 7-14`")
         return
 
     try:
@@ -122,26 +115,28 @@ async def add_recurring_task(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    cursor.execute("SELECT task, due_date, recurrence_min FROM tasks WHERE user_id = ?", (user_id,))
+    cursor.execute("""
+        SELECT task, due_date, recurrence_min
+        FROM tasks
+        WHERE user_id = ?
+        ORDER BY due_date ASC
+        LIMIT 10
+    """, (user_id,))
     rows = cursor.fetchall()
     if not rows:
         await update.message.reply_text("📭 No tasks found.")
         return
 
-    lines = []
+    lines = ["📝 Your closest tasks:"]
     for task, due_date, recurrence in rows:
         due = datetime.fromisoformat(due_date).strftime("%Y-%m-%d")
-        lines.append(f"📝 {task} — due: {due}{' (recurring)' if recurrence else ''}")
+        lines.append(f"• {task} — due: {due}{' (recurring)' if recurrence else ''}")
     await update.message.reply_text("\n".join(lines))
 
-
-# --- Background Reminder Job ---
 
 async def reminder_loop(app: Application):
     while True:
         now = datetime.now()
-        # Define your "allowed" notification hours (e.g., 7 AM to 9 PM)
-        # You can adjust these values as needed
         start_hour = 7
         end_hour = 21  # 9 PM
 
@@ -179,16 +174,13 @@ async def reminder_loop(app: Application):
                     cursor.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
                 conn.commit()
 
-        await asyncio.sleep(60 * 60)  # Run every hour
+        await asyncio.sleep(60 * 60)
 
-
-# --- Button Handler ---
 
 async def handle_snooze(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     task_id = int(query.data.split(":")[1])
-    # For snooze, we'll use a default snooze range, e.g., 7-14 days
     new_days = random.randint(7, 14)
     new_due = datetime.now() + timedelta(days=new_days)
     cursor.execute("UPDATE tasks SET due_date = ? WHERE id = ?", (new_due.isoformat(), task_id))
@@ -196,19 +188,15 @@ async def handle_snooze(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(f"😴 Snoozed for {new_days} days.")
 
 
-# --- Entry Point ---
-
 def main():
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    # Change these to match your /start message
     app.add_handler(CommandHandler("task", add_one_time_task))
     app.add_handler(CommandHandler("every", add_recurring_task))
     app.add_handler(CommandHandler("list", list_tasks))
     app.add_handler(CallbackQueryHandler(handle_snooze, pattern="^snooze:"))
 
-    # Launch reminder loop
     app.job_queue.run_once(lambda *_: asyncio.create_task(reminder_loop(app)), 1)
 
     print("🤖 Choreizo is running...")
