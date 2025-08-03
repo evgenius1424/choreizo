@@ -197,10 +197,8 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             status = f"Due in *{days_left}* day{'s' if days_left != 1 else ''}"
 
-        task_type = "Recurring" if rmin is not None else "One-time"
-        range_info = f" ({rmin}-{rmax} days)" if rmin is not None else ""
-
-        lines.append(f"\n*{task}*\n{task_type}{range_info}\n{status}")
+        recurring_chip = " 🔁" if rmin is not None else ""
+        lines.append(f"• *{task}* — {status}{recurring_chip}")
 
     message = "\n".join(lines)
     if len(message) > 4000:
