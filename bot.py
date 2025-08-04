@@ -26,6 +26,7 @@ DB_PATH = "choreizo.db"
 
 
 def init_db():
+    """Initializes the SQLite database and creates the tasks table."""
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
         cursor.execute("""
@@ -52,21 +53,25 @@ def init_db():
 
 
 async def get_berlin_time():
+    """Returns the current time in the Berlin timezone."""
     return datetime.now(BERLIN_TZ)
 
 
 async def is_reminder_time():
+    """Checks if the current hour in Berlin is the reminder hour."""
     berlin_now = await get_berlin_time()
     return berlin_now.hour == REMINDER_HOUR
 
 
 async def get_today_berlin():
+    """Returns today's date in the Berlin timezone."""
     berlin_now = await get_berlin_time()
     return berlin_now.date()
 
 
 @asynccontextmanager
 async def get_db():
+    """Provides an asynchronous context manager for the database connection."""
     conn = sqlite3.connect(DB_PATH)
     try:
         yield conn
@@ -75,6 +80,7 @@ async def get_db():
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Sends a welcome message and lists available commands."""
     await update.message.reply_text(
         "👋 Hello! I'm Choreizo, your friendly task reminder bot.\n\n"
         "Here's what I can do:\n"
@@ -89,6 +95,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _parse_task_input(args):
+    """Parses task input from a command, extracting task name and recurrence range."""
     if not args:
         return None, None, None
 
@@ -105,6 +112,7 @@ async def _parse_task_input(args):
 
 
 async def add_one_time_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Adds a one-time task to the database."""
     task_name, min_days, max_days = await _parse_task_input(context.args)
 
     if task_name is None:
@@ -127,14 +135,16 @@ async def add_one_time_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
             conn.commit()
 
         await update.message.reply_text(
-            f"✅ Task '{task_name}' added! I'll remind you in {days_until_due} day{'s' if days_until_due != 1 else ''}."
+            f"✅ Task '{task_name}' added! I'll remind you in "
+            f"{days_until_due} day{'s' if days_until_due != 1 else ''}."
         )
     except Exception as e:
-        logging.error(f"Error adding task: {e}")
+        logging.error("Error adding task: %s", e)
         await update.message.reply_text("❌ An error occurred while adding the task. Please try again.")
 
 
 async def add_repeating_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Adds a recurring task to the database."""
     task_name, min_days, max_days = await _parse_task_input(context.args)
 
     if task_name is None:
@@ -157,20 +167,22 @@ async def add_repeating_task(update: Update, context: ContextTypes.DEFAULT_TYPE)
             conn.commit()
 
         await update.message.reply_text(
-            f"🔁 Recurring task '{task_name}' added! First reminder in {days_until_due} day{'s' if days_until_due != 1 else ''}."
+            f"🔁 Recurring task '{task_name}' added! First reminder in "
+            f"{days_until_due} day{'s' if days_until_due != 1 else ''}."
         )
     except Exception as e:
-        logging.error(f"Error adding recurring task: {e}")
+        logging.error("Error adding recurring task: %s", e)
         await update.message.reply_text("❌ An error occurred while adding the recurring task. Please try again.")
 
 
 async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Lists all active tasks for the user."""
     user_id = update.effective_user.id
 
     async with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT id, task, due_date, recurrence_min, recurrence_max
+            SELECT id, task, due_date, recurrence_min
             FROM tasks
             WHERE user_id = ?
             ORDER BY due_date ASC
@@ -184,9 +196,10 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines = ["*Your Tasks:*"]
     now = datetime.now()
 
-    for task_id, task, due_date, rmin, rmax in rows:
+    for _, task, due_date, rmin in rows:
         due = datetime.fromisoformat(due_date)
         days_left = (due - now).days
+        status = ""
 
         if days_left < 0:
             status = f"Overdue by {abs(days_left)} day{'s' if abs(days_left) != 1 else ''}"
@@ -210,6 +223,7 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def delete_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Sends an inline keyboard to let the user select a task to delete."""
     user_id = update.effective_user.id
 
     async with get_db() as conn:
@@ -225,7 +239,8 @@ async def delete_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = []
     for task_id, task_name in tasks[:10]:
-        keyboard.append([InlineKeyboardButton(f"🗑️ {task_name[:30]}...", callback_data=f"delete:{task_id}")])
+        display_name = task_name if len(task_name) <= 30 else f"{task_name[:27]}..."
+        keyboard.append([InlineKeyboardButton(f"🗑️ {display_name}", callback_data=f"delete:{task_id}")])
 
     keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="delete:cancel")])
 
@@ -236,8 +251,7 @@ async def delete_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def get_tasks_due_today(user_id):
-    today = datetime.now().date()
-
+    """Retrieves tasks that are due today or overdue for a specific user."""
     async with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("""
@@ -250,10 +264,11 @@ async def get_tasks_due_today(user_id):
 
 
 async def postpone_task_by_one_day(task_id):
+    """Postpones a task's due date by one day."""
     async with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            UPDATE tasks 
+            UPDATE tasks
             SET due_date = datetime(due_date, '+1 day')
             WHERE id = ?
         """, (task_id,))
@@ -261,6 +276,7 @@ async def postpone_task_by_one_day(task_id):
 
 
 async def reminder_loop(app: Application):
+    """Periodically checks for and sends task reminders to users."""
     while True:
         try:
             if not await is_reminder_time():
@@ -273,7 +289,7 @@ async def reminder_loop(app: Application):
             async with get_db() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT DISTINCT user_id FROM tasks 
+                    SELECT DISTINCT user_id FROM tasks
                     WHERE date(due_date) <= date('now')
                     AND (last_reminded IS NULL OR date(last_reminded) != date('now'))
                 """)
@@ -324,23 +340,19 @@ async def reminder_loop(app: Application):
                             reply_markup=keyboard,
                             parse_mode="Markdown"
                         )
-
                         async with get_db() as conn:
                             cursor = conn.cursor()
                             cursor.execute("""
-                                UPDATE tasks 
-                                SET last_reminded = ? 
+                                UPDATE tasks
+                                SET last_reminded = ?
                                 WHERE id = ?
                             """, (berlin_time.isoformat(), task_id))
                             conn.commit()
-
                     except Exception as e:
-                        logging.warning(f"Failed to notify user {user_id}: {e}")
-
+                        logging.warning("Failed to notify user %s: %s", user_id, e)
             await asyncio.sleep(23 * 60 * 60)
-
         except Exception as e:
-            logging.error(f"Error in reminder loop: {e}")
+            logging.error("Error in reminder loop: %s", e)
             await asyncio.sleep(60 * 60)
 
 
@@ -348,14 +360,14 @@ async def handle_task_action(update: Update, context: ContextTypes.DEFAULT_TYPE)
     query = update.callback_query
     await query.answer()
 
-    action, task_id = query.data.split(":", 1)
+    action, task_id_str = query.data.split(":", 1)
 
     if action == "delete":
-        if task_id == "cancel":
+        if task_id_str == "cancel":
             await query.edit_message_text("❌ Deletion cancelled.")
             return
 
-        task_id = int(task_id)
+        task_id = int(task_id_str)
         async with get_db() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT task FROM tasks WHERE id = ?", (task_id,))
@@ -369,12 +381,12 @@ async def handle_task_action(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 await query.edit_message_text("❌ Task not found.")
         return
 
-    task_id = int(task_id)
+    task_id = int(task_id_str)
 
     async with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT task, recurrence_min, recurrence_max 
+            SELECT task, recurrence_min, recurrence_max
             FROM tasks WHERE id = ?
         """, (task_id,))
         task_info = cursor.fetchone()
@@ -390,8 +402,8 @@ async def handle_task_action(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 new_days = random.randint(rmin, rmax)
                 new_due = datetime.now() + timedelta(days=new_days)
                 cursor.execute("""
-                    UPDATE tasks 
-                    SET due_date = ?, last_reminded = NULL 
+                    UPDATE tasks
+                    SET due_date = ?, last_reminded = NULL
                     WHERE id = ?
                 """, (new_due.isoformat(), task_id))
                 await query.edit_message_text(
@@ -404,11 +416,10 @@ async def handle_task_action(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         elif action == "snooze":
             snooze_days = random.randint(7, 14)
-
             new_due = datetime.now() + timedelta(days=snooze_days)
             cursor.execute("""
-                UPDATE tasks 
-                SET due_date = ?, last_reminded = NULL 
+                UPDATE tasks
+                SET due_date = ?, last_reminded = NULL
                 WHERE id = ?
             """, (new_due.isoformat(), task_id))
             await query.edit_message_text(
@@ -419,6 +430,7 @@ async def handle_task_action(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Sends a message with the user's task statistics."""
     user_id = update.effective_user.id
 
     async with get_db() as conn:
@@ -428,18 +440,18 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         total_tasks = cursor.fetchone()[0]
 
         cursor.execute("""
-            SELECT COUNT(*) FROM tasks 
+            SELECT COUNT(*) FROM tasks
             WHERE user_id = ? AND date(due_date) < date('now')
         """, (user_id,))
         overdue_tasks = cursor.fetchone()[0]
 
         cursor.execute("""
-            SELECT COUNT(*) FROM tasks 
+            SELECT COUNT(*) FROM tasks
             WHERE user_id = ? AND recurrence_min IS NOT NULL
         """, (user_id,))
         recurring_tasks = cursor.fetchone()[0]
 
-        one_time_tasks = total_tasks - recurring_tasks
+    one_time_tasks = total_tasks - recurring_tasks
 
     await update.message.reply_text(
         f"📊 *Your Task Stats:*\n\n"
@@ -452,6 +464,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
+    """Main function to initialize and run the bot."""
     init_db()
     app = Application.builder().token(TOKEN).build()
 
@@ -463,7 +476,10 @@ def main():
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CallbackQueryHandler(handle_task_action))
 
-    app.job_queue.run_once(lambda *_: asyncio.create_task(reminder_loop(app)), 1)
+    app.job_queue.run_once(
+        lambda _: asyncio.create_task(reminder_loop(app)),
+        1
+    )
 
     print("🤖 Choreizo is running...")
     app.run_polling()
